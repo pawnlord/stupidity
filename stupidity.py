@@ -13,11 +13,20 @@ if not os.path.exists(".stupidity/stpd.cfg"):
 def getval(header, val, config : configparser.ConfigParser, default = ""):
     if config.has_section(header):
         headerVal = config[header]
-        if headerVal.has_key(val):
+        if val in headerVal.keys():
             return headerVal[val]
     else: 
         config[header] = {}
     config[header][val] = default
+    return default
+def getval(header, val, d : dict, default = ""):
+    if header in d.keys():
+        headerVal = d[header]
+        if val in headerVal.keys():
+            return headerVal[val]
+    else: 
+        d[header] = {}
+    d[header][val] = default
     return default
 def getdict(header, config):
     if config.has_section(header):
@@ -52,28 +61,51 @@ class StupidityRepo:
     def __init__(self):
         self.config = configparser.ConfigParser()
 
-        with open('.stupidity/stpd.cfg', 'r+') as configfile:
-            self.config.read(configfile)
-        self.tracked_filenames = list(getval("FILES", "tracked", self.config))
-        self.tracked_files = {name:getdict("FILE:" + name, self.config) for name in self.tracked_filenames} 
+        with open('.stupidity/stpd.cfg', 'r') as configfile:
+            self.config.read_file(configfile)
+
+        self.tracked_filenames = getval("FILES", "tracked", self.config).split(',')
+        self.tracked_files = {"FILE:" + name:getdict("FILE:" + name, self.config) for name in self.tracked_filenames} 
+        print(self.tracked_files)
+        
+    
     def getnext(self, args, idx, verbose=True):
         idx, arg, options = getnext(args, idx, verbose)
         self.process_options(options)
+        
         return idx, arg
+    
     def process_options(self, options):
         pass
+    
     def close(self):
-        self.config["FILES"]["tracked"] = str(self.tracked_filenames)
+        self.config["FILES"]["tracked"] = ",".join(self.tracked_filenames)
         with open('.stupidity/stpd.cfg', 'w') as configfile:
             self.config.write(configfile)
+    
     def add_file(self, filename : str, file ):
-        self.tracked_filenames.append(filename)
-        self.tracked_files["FILE:" + filename] = {
-                        "time_added" : str(time.time()),
-                        "hash" : get_file_hash(file).hexdigest()
-                    }
-        self.config["FILE:" + filename] = self.tracked_files["FILE:" + filename]
+        if not filename in self.tracked_filenames:
+            self.tracked_filenames.append(filename)
         
+            self.tracked_files["FILE:" + filename] = {
+                            "time_added" : str(time.time()),
+                            "time_modified" : str(time.time()),
+                            "hash" : get_file_hash(file).hexdigest()
+                        }
+            self.config["FILE:" + filename] = self.tracked_files["FILE:" + filename]
+        
+        else:
+            file_data = self.tracked_files["FILE:" + filename]
+            hash = get_file_hash(file).hexdigest()
+        
+            if hash != file_data["hash"]:
+                self.tracked_files["FILE:" + filename] = {
+                                "time_added" : getval("FILE:" + filename, "time_added", self.tracked_files, str(time.time())),
+                                "time_modified" : str(time.time()),
+                                "hash" : get_file_hash(file).hexdigest()
+                            }
+                self.config["FILE:" + filename] = self.tracked_files["FILE:" + filename]
+
 
 def main(args):
     print (args)
@@ -83,13 +115,15 @@ def main(args):
     command = command.lower()
     print(command)
     if command == "add":
-        idx, filename = repo.getnext(args, idx)
+        idx, filenameRaw = repo.getnext(args, idx)
+        filename = os.path.relpath(filenameRaw)
+
         while filename != None:
             if not os.path.exists(filename):
-                print("[stupidity] {}: File/path does not exist", filename)
+                print("[stupidity] {}: File/path does not exist".format(filename))
                 exit()
             if not os.path.isfile(filename):
-                print("[stupidity] {}: Not a file", filename)
+                print("[stupidity] {}: Not a file".format(filename))
                 exit()
             with open(filename, 'r+') as file:
                 repo.add_file(filename, file)
