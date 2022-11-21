@@ -6,8 +6,8 @@ import hashlib
 
 if not os.path.exists(".stupidity"):
     os.makedirs(".stupidity")
-if not os.path.exists(".stupidity/stpd.cfg"):
-    with open(".stupidity/stpd.cfg", 'w'):
+if not os.path.exists(".stupidity/stpd.inf"):
+    with open(".stupidity/stpd.inf", 'w'):
         pass
 
 def getval(header, val, config : configparser.ConfigParser, default = ""):
@@ -95,7 +95,6 @@ class CommitTree:
                     self.tree_map[edge[1]] = self.tree_map[edge[0]].add_child(edge[1])
         if not "root" in self.tree_map.keys():
             self.tree_map["root"] = CommitNode(current, None)
-    #test
     def add_hash(self, current_hash, hash):
         if not current_hash in self.tree_map.keys():
             self.tree_map[current_hash] = CommitNode(current_hash, None)
@@ -133,7 +132,7 @@ class StupidityRepo:
     def __init__(self):
         self.config = configparser.ConfigParser()
 
-        with open('.stupidity/stpd.cfg', 'r') as configfile:
+        with open('.stupidity/stpd.inf', 'r') as configfile:
             self.config.read_file(configfile)
 
         self.tracked_filenames = getval("FILES", "tracked", self.config).split(',')
@@ -155,7 +154,7 @@ class StupidityRepo:
             file.clean_up()
             self.config[filename] = file.data
         self.config["FILES"]["tracked"] = ",".join(self.tracked_filenames)
-        with open('.stupidity/stpd.cfg', 'w') as configfile:
+        with open('.stupidity/stpd.inf', 'w') as configfile:
             self.config.write(configfile)
     def add_file(self, filename : str, file):
         # add data to commite file
@@ -177,7 +176,7 @@ class StupidityRepo:
                 self.tracked_files["FILE:" + filename] = FileData({ 
                         "time_added" : str(time.time()),
                         "time_modified" : str(time.time()),
-                        "hash" : get_file_hash(file).hexdigest,
+                        "hash" : get_file_hash(file).hexdigest(),
                     })
             self.add_file(filename, file)
         else:
