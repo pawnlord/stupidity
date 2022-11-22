@@ -1,4 +1,4 @@
-import configparser
+import json
 import os
 import sys
 import time
@@ -6,20 +6,11 @@ import hashlib
 
 if not os.path.exists(".stupidity"):
     os.makedirs(".stupidity")
-if not os.path.exists(".stupidity/stpd.inf"):
-    with open(".stupidity/stpd.inf", 'w'):
-        pass
+if not os.path.exists(".stupidity/stpd.json"):
+    with open(".stupidity/stpd.json", 'w') as file:
+        file.write('{}')
 
-def getval(header, val, config : configparser.ConfigParser, default = ""):
-    if config.has_section(header):
-        headerVal = config[header]
-        if val in headerVal.keys():
-            return headerVal[val]
-    else: 
-        config[header] = {}
-    config[header][val] = default
-    return default
-def getval(header, val, d : dict, default = ""):
+def getval(header, val, d, default = ""):
     if header in d.keys():
         headerVal = d[header]
         if val in headerVal.keys():
@@ -29,7 +20,7 @@ def getval(header, val, d : dict, default = ""):
     d[header][val] = default
     return default
 def getdict(header, config):
-    if config.has_section(header):
+    if header in config.keys():
         return  config[header]
     return {}
 
@@ -60,59 +51,42 @@ def get_file_hash(file, buf_size=2048):
     return sha1
 
 class CommitNode:
-    def __init__(self, name, parent=None):
+    def __init__(self, name, data, parent=None, current=None):
         self.parent = parent
         self.name = name
-        self.children = []
-    def add_child(self, node_name : str):
-        self.children.append(CommitNode(node_name, self))
-        return self.children[-1]
-    def add_child_node(self, node):
-        self.children.append(node)
-        node.set_parent(self)
-    def set_parent(self, node):
-        self.parent = node
-
+        self.children = {}
+        self.current = None
+        for key, node in data.items():
+            self.children[key] = CommitNode(key, node, self)
+            if key == current:
+                self.current = self.children[key]
+            elif self.children[key].current != None:
+                self.current = self.children[key].current
+    def getlist(self):
+        data = {}
+        for key, child in self.children.items():
+            data[key] = child.getlist()
+            ###
+        return data
 class CommitTree: 
     def __init__(self, current, data):
-        self.edges = [(edge.split('|')[0], edge.split('|')[1]) if len(edge)>1 else (None,None) for edge in data.split(',')]
-        self.tree_map = {}
-        for edge in self.edges: # assume root first
-            if edge[0] == None:
-                continue
-            if edge[0] == "":
-                if edge[1] in self.tree_map.keys():
-                    self.tree_map["root"] = self.tree_map[edge[1]]
-                else:    
-                    self.tree_map["root"] = CommitNode(edge[1], None)
-            else:
-                if not edge[0] in self.tree_map.keys():
-                    self.tree_map[edge[0]] =  CommitNode(edge[0], None)
-    
-                if edge[1] in self.tree_map.keys():
-                    self.tree_map[edge[0]].add_child_node(self.tree_map[edge[1]])
-                else:
-                    self.tree_map[edge[1]] = self.tree_map[edge[0]].add_child(edge[1])
-        if not "root" in self.tree_map.keys():
-            self.tree_map["root"] = CommitNode(current, None)
-    def add_hash(self, current_hash, hash):
-        if not current_hash in self.tree_map.keys():
-            self.tree_map[current_hash] = CommitNode(current_hash, None)
-        self.tree_map[current_hash].add_child(hash)
+        self.data = data
+        self.current = current
+        self.root = CommitNode("root", data, None, current)
+        self.currentNode = self.root
+        if self.currentNode.current != None:
+            self.currentNode = self.currentNode.current        
+    def add_hash(self, hash):
+        if not hash in self.currentNode.children.keys(): 
+            self.current = hash
+            self.currentNode.children[hash] = CommitNode(hash, {}, self.currentNode)
+        self.currentNode = self.currentNode.children[hash]
     def encode(self):
-        repr_list = []
-        for name, node in self.tree_map.items():
-            if node == self.tree_map["root"] and name != "root":
-                continue
-            if name == "root":
-                repr_list.append("|{}".format(node.name))
-            for child in node.children:
-                repr_list.append("{}|{}".format(node.name, child.name))
-        return ",".join(repr_list)
+        return self.root.getlist()
 class FileData:
     def __init__(self, data):
         self.data = data
-        self.tree = CommitTree(data["hash"] if "hash" in data.keys() else "", data["tree"] if "tree" in data.keys() else "")
+        self.tree = CommitTree(data["hash"] if "hash" in data.keys() else "", data["tree"] if "tree" in data.keys() else {})
         self.time_added = data["time_added"] if "time_added" in data.keys() else str(time.time())
     def clean_up(self):
         self.data["tree"] = self.tree.encode()
@@ -120,7 +94,7 @@ class FileData:
         if not hash:
             hash =  get_file_hash(file).hexdigest();
         
-        self.tree.add_hash(self.data["hash"], hash)
+        self.tree.add_hash(hash)
         self.data =  {
             "time_added" : str(time.time()) if not "time_added" in self.data.keys() else self.data["time_added"],
             "time_modified" : str(time.time()),
@@ -130,13 +104,14 @@ class FileData:
 
 class StupidityRepo:
     def __init__(self):
-        self.config = configparser.ConfigParser()
 
-        with open('.stupidity/stpd.inf', 'r') as configfile:
-            self.config.read_file(configfile)
+        with open('.stupidity/stpd.json', 'r') as infofile:
+            self.info = json.load(infofile)
 
-        self.tracked_filenames = getval("FILES", "tracked", self.config).split(',')
-        self.tracked_files = {"FILE:" + name:FileData(getdict("FILE:" + name, self.config)) for name in self.tracked_filenames} 
+        self.tracked_filenames = getval("FileInfo", "tracked", self.info,[])
+        if not "Files" in self.info.keys():
+            self.info["Files"] = {} 
+        self.tracked_files = {name:FileData(getdict(name, getdict("Files", self.info))) for name in self.tracked_filenames} 
         print(self.tracked_files)
         
     
@@ -152,10 +127,10 @@ class StupidityRepo:
     def close(self):
         for filename, file in self.tracked_files.items():
             file.clean_up()
-            self.config[filename] = file.data
-        self.config["FILES"]["tracked"] = ",".join(self.tracked_filenames)
-        with open('.stupidity/stpd.inf', 'w') as configfile:
-            self.config.write(configfile)
+            self.info["Files"][filename] = file.data
+        self.info["FileInfo"]["tracked"] = self.tracked_filenames
+        with open('.stupidity/stpd.json', 'w') as infofile:
+            json.dump(self.info, infofile)
     def add_file(self, filename : str, file):
         # add data to commite file
         path = ".stupidity/{}".format(get_file_hash(file).hexdigest())
@@ -170,19 +145,18 @@ class StupidityRepo:
     def add_file_data(self, filename : str, file ):
         if not filename in self.tracked_filenames:
             self.tracked_filenames.append(filename)
-            if "FILE:" + filename in self.tracked_files.keys():
-                self.tracked_files["FILE:" + filename].add_file(file)
+            if filename in self.tracked_files.keys():
+                self.tracked_files[filename].add_file(file)
             else:
-                self.tracked_files["FILE:" + filename] = FileData({ 
+                self.tracked_files[filename] = FileData({ 
                         "time_added" : str(time.time()),
                         "time_modified" : str(time.time()),
                         "hash" : get_file_hash(file).hexdigest(),
                     })
             self.add_file(filename, file)
         else:
-            file_data = self.tracked_files["FILE:" + filename]
+            file_data = self.tracked_files[filename]
             hash = get_file_hash(file).hexdigest()
-            print(hash + "\n" + file_data.data["hash"])
             if hash != file_data.data["hash"]:
                 file_data.add_file(file, hash)
                 self.add_file(filename, file)
