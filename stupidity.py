@@ -62,12 +62,17 @@ class CommitNode:
                 self.current = self.children[key]
             elif self.children[key].current != None:
                 self.current = self.children[key].current
-    def getlist(self):
+    def getdict(self):
         data = {}
         for key, child in self.children.items():
-            data[key] = child.getlist()
+            data[key] = child.getdict()
             ###
         return data
+    def getlist(self, current_list = []):
+        if self.parent == None:
+            return [self.name] 
+        else:
+            return  self.parent.getlist() + [self.name]
 class CommitTree: 
     def __init__(self, current, data):
         self.data = data
@@ -82,12 +87,15 @@ class CommitTree:
             self.currentNode.children[hash] = CommitNode(hash, {}, self.currentNode)
         self.currentNode = self.currentNode.children[hash]
     def encode(self):
-        return self.root.getlist()
+        return self.root.getdict()
+    def get_hash_list(self):
+        return self.currentNode.getlist()
 class FileData:
-    def __init__(self, data):
+    def __init__(self, data, name):
         self.data = data
         self.tree = CommitTree(data["hash"] if "hash" in data.keys() else "", data["tree"] if "tree" in data.keys() else {})
         self.time_added = data["time_added"] if "time_added" in data.keys() else str(time.time())
+        self.name = name
     def clean_up(self):
         self.data["tree"] = self.tree.encode()
     def add_file(self, file, hash = None):
@@ -101,7 +109,17 @@ class FileData:
             "hash" : hash
         }
             
-
+class Update:
+    def __init__(self, filedata, msg):
+        self.data = {}
+        hash = hashlib.sha1()
+        for file in filedata.values():
+            self.data[file.name] = file.tree.get_hash_list()
+            print(str(self.data))
+            hash.update(str(self.data).encode('utf-8'))
+        self.hash_digest = str(hash.hexdigest())
+        self.data["###msg"] = msg
+        self.msg = msg
 class StupidityRepo:
     def __init__(self):
 
@@ -111,7 +129,10 @@ class StupidityRepo:
         self.tracked_filenames = getval("FileInfo", "tracked", self.info,[])
         if not "Files" in self.info.keys():
             self.info["Files"] = {} 
-        self.tracked_files = {name:FileData(getdict(name, getdict("Files", self.info))) for name in self.tracked_filenames} 
+        if not "Updates" in self.info.keys():
+            self.info["Updates"] = {} 
+
+        self.tracked_files = {name:FileData(getdict(name, getdict("Files", self.info)), name) for name in self.tracked_filenames} 
         print(self.tracked_files)
         
     
@@ -134,13 +155,13 @@ class StupidityRepo:
     def add_file(self, filename : str, file):
         # add data to commite file
         path = ".stupidity/{}".format(get_file_hash(file).hexdigest())
-        print(get_file_hash(file).hexdigest())
-        os.makedirs(path)
-        with open(path + "/" + filename, "w+") as commit_file:
-            data = file.read()
-            commit_file.write(data)
-        file.seek(0)
-        
+        if not os.path.exists(path):
+            print(get_file_hash(file).hexdigest())
+            os.makedirs(path)
+            with open(path + "/" + filename, "w+") as commit_file:
+                data = file.read()
+                commit_file.write(data)
+            file.seek(0)
 
     def add_file_data(self, filename : str, file ):
         if not filename in self.tracked_filenames:
@@ -152,7 +173,7 @@ class StupidityRepo:
                         "time_added" : str(time.time()),
                         "time_modified" : str(time.time()),
                         "hash" : get_file_hash(file).hexdigest(),
-                    })
+                    }, filename)
             self.add_file(filename, file)
         else:
             file_data = self.tracked_files[filename]
@@ -160,8 +181,9 @@ class StupidityRepo:
             if hash != file_data.data["hash"]:
                 file_data.add_file(file, hash)
                 self.add_file(filename, file)
-            
-
+    def update(self, msg):
+        update = Update(self.tracked_files, msg)
+        self.info["Updates"][update.hash_digest] = update.data
 def main(args):
     print (args)
     repo = StupidityRepo()
@@ -183,6 +205,14 @@ def main(args):
             with open(filename, 'r+') as file:
                 repo.add_file_data(filename, file)
             idx, filename = repo.getnext(args, idx, verbose=False)
+    if command == "update":
+        idx, msg = repo.getnext(args, idx)
+        if msg == None:
+            exit()
+        for name in repo.tracked_filenames:
+            with open(name, "r+") as file:
+                repo.add_file_data(name, file)
+        repo.update(msg)
     print(repo.tracked_files)
     print(repo.tracked_filenames)
     repo.close()
