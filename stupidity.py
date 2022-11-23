@@ -72,24 +72,30 @@ class CommitNode:
             return [self.name] 
         else:
             return  self.parent.getlist() + [self.name]
-# 
+    def get_ancestor(self, n):
+        if n == 0 or self.parent == None:
+            return self
+        return self.parent.get_ancestor(n-1)
+        
 class CommitTree: 
     def __init__(self, current, data):
         self.data = data
         self.current = current
         self.root = CommitNode("root", data, current, parent=None)
-        self.currentNode = self.root
-        if self.currentNode.current is not None:
-            self.currentNode = self.currentNode.current        
+        self.current_node = self.root
+        if self.current_node.current is not None:
+            self.current_node = self.current_node.current        
     def add_hash(self, hash):
-        if not hash in self.currentNode.children.keys(): 
+        if not hash in self.current_node.children.keys(): 
             self.current = hash
-            self.currentNode.children[hash] = CommitNode(hash, {}, self.currentNode)
-        self.currentNode = self.currentNode.children[hash]
+            self.current_node.children[hash] = CommitNode(hash, {}, self.current_node)
+        self.current_node = self.current_node.children[hash]
     def encode(self):
         return self.root.getdict()
     def get_hash_list(self):
-        return self.currentNode.getlist()
+        return self.current_node.getlist()
+    def revert(self, n):
+        self.current_node = self.current_node.get_ancestor(n)
 class FileData:
     def __init__(self, data, name):
         self.data = data
@@ -108,7 +114,18 @@ class FileData:
             "time_modified" : str(time.time()),
             "hash" : hash
         }
-            
+    def revert(self, n):
+        self.tree.revert(n)
+        # Replace data in file here
+        inpath = ".stupidity/{}/{}".format(self.tree.current_node.name, self.name)
+        outpath = self.name
+        with open(inpath, "r") as infile:
+            with open(outpath, "w") as outfile:
+                data = infile.read(2048)
+                while data:
+                    outfile.write(data)
+                    data = infile.read(2048)
+        self.data["hash"] = self.tree.current_node.name
 class Update:
     def __init__(self, filedata, msg):
         self.data = {}
@@ -184,6 +201,7 @@ class StupidityRepo:
     def update(self, msg):
         update = Update(self.tracked_files, msg)
         self.info["Updates"][update.hash_digest] = update.data
+    
 def main(args):
     print (args)
     repo = StupidityRepo()
@@ -198,21 +216,36 @@ def main(args):
         while filename is not None:
             if not os.path.exists(filename):
                 print("[stupidity] {}: File/path does not exist".format(filename))
-                exit()
+                exit(1)
             if not os.path.isfile(filename):
                 print("[stupidity] {}: Not a file".format(filename))
-                exit()
+                exit(1)
             with open(filename, 'r+') as file:
                 repo.add_file_data(filename, file)
             idx, filename = repo.getnext(args, idx, verbose=False)
     if command == "update":
         idx, msg = repo.getnext(args, idx)
         if msg == None:
-            exit()
+            exit(1)
         for name in repo.tracked_filenames:
             with open(name, "r+") as file:
                 repo.add_file_data(name, file)
         repo.update(msg)
+    if command == "revert":
+        idx, name = repo.getnext(args, idx)
+        idx, no_str = repo.getnext(args, idx)
+        try:
+            num = int(no_str)
+            name = os.path.relpath(name)
+            if not name in repo.tracked_filenames:
+                print("File " + name + " not in repo")
+                exit(1)
+            repo.tracked_files[name].revert(num)
+        except TypeError as e:
+            print("Expected number of commits to revert back to")
+            exit(1)
+
+
     print(repo.tracked_files)
     print(repo.tracked_filenames)
     repo.close()
