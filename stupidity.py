@@ -57,29 +57,29 @@ class CommitNode:
         self.children = {}
         self.current = None
         for key, node in data.items():
-            self.children[key] = CommitNode(key, node, self)
+            self.children[key] = CommitNode(key, node, self, current)
             if key == current:
                 self.current = self.children[key]
-            elif self.children[key].current != None:
+            elif self.children[key].current is not None:
                 self.current = self.children[key].current
     def getdict(self):
         data = {}
         for key, child in self.children.items():
             data[key] = child.getdict()
-            ###
         return data
     def getlist(self, current_list = []):
         if self.parent == None:
             return [self.name] 
         else:
             return  self.parent.getlist() + [self.name]
+# 
 class CommitTree: 
     def __init__(self, current, data):
         self.data = data
         self.current = current
         self.root = CommitNode("root", data, None, current)
         self.currentNode = self.root
-        if self.currentNode.current != None:
+        if self.currentNode.current is not None:
             self.currentNode = self.currentNode.current        
     def add_hash(self, hash):
         if not hash in self.currentNode.children.keys(): 
@@ -195,7 +195,7 @@ def main(args):
         idx, filenameRaw = repo.getnext(args, idx)
         filename = os.path.relpath(filenameRaw)
 
-        while filename != None:
+        while filename is not None:
             if not os.path.exists(filename):
                 print("[stupidity] {}: File/path does not exist".format(filename))
                 exit()
