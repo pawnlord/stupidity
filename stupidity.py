@@ -126,7 +126,7 @@ class StupidityRepo:
         with open('.stupidity/stpd.json', 'r') as infofile:
             self.info = json.load(infofile)
 
-        self.tracked_filenames = getval("FileInfo", "tracked", default=self.info,[])
+        self.tracked_filenames = getval("FileInfo", "tracked", self.info,default=[])
         if not "Files" in self.info.keys():
             self.info["Files"] = {} 
         if not "Updates" in self.info.keys():
