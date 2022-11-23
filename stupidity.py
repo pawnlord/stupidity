@@ -51,13 +51,13 @@ def get_file_hash(file, buf_size=2048):
     return sha1
 
 class CommitNode:
-    def __init__(self, name, data, parent=None, current=None):
+    def __init__(self, name, data, current, parent=None):
         self.parent = parent
         self.name = name
         self.children = {}
         self.current = None
         for key, node in data.items():
-            self.children[key] = CommitNode(key, node, self, current)
+            self.children[key] = CommitNode(key, node, current, parent=self)
             if key == current:
                 self.current = self.children[key]
             elif self.children[key].current is not None:
@@ -67,7 +67,7 @@ class CommitNode:
         for key, child in self.children.items():
             data[key] = child.getdict()
         return data
-    def getlist(self, current_list = []):
+    def getlist(self):
         if self.parent == None:
             return [self.name] 
         else:
@@ -77,7 +77,7 @@ class CommitTree:
     def __init__(self, current, data):
         self.data = data
         self.current = current
-        self.root = CommitNode("root", data, None, current)
+        self.root = CommitNode("root", data, current, parent=None)
         self.currentNode = self.root
         if self.currentNode.current is not None:
             self.currentNode = self.currentNode.current        
@@ -126,7 +126,7 @@ class StupidityRepo:
         with open('.stupidity/stpd.json', 'r') as infofile:
             self.info = json.load(infofile)
 
-        self.tracked_filenames = getval("FileInfo", "tracked", self.info,[])
+        self.tracked_filenames = getval("FileInfo", "tracked", default=self.info,[])
         if not "Files" in self.info.keys():
             self.info["Files"] = {} 
         if not "Updates" in self.info.keys():
@@ -152,7 +152,7 @@ class StupidityRepo:
         self.info["FileInfo"]["tracked"] = self.tracked_filenames
         with open('.stupidity/stpd.json', 'w') as infofile:
             json.dump(self.info, infofile)
-    def add_file(self, filename : str, file):
+    def add_file(self, filename, file):
         # add data to commite file
         path = ".stupidity/{}".format(get_file_hash(file).hexdigest())
         if not os.path.exists(path):
