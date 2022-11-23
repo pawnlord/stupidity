@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import hashlib
+from pathlib import Path
 
 if not os.path.exists(".stupidity"):
     os.makedirs(".stupidity")
@@ -127,6 +128,7 @@ class FileData:
         self.tree.revert(n)
         # Replace data in file here
         inpath = ".stupidity/{}/{}".format(self.tree.current_node.name, self.name)
+        print(inpath)
         outpath = self.name
         with open(inpath, "r") as infile:
             with open(outpath, "w") as outfile:
@@ -180,14 +182,15 @@ class StupidityRepo:
             json.dump(self.info, infofile)
     def add_file(self, filename, file):
         # add data to commite file
-        path = ".stupidity/{}".format(get_file_hash(file).hexdigest())
+        path_obj = Path(filename)
+        path = ".stupidity/{}/{}/".format(get_file_hash(file).hexdigest(), str(path_obj.parent))
         if not os.path.exists(path):
-            print(get_file_hash(file).hexdigest())
+            print(path)
             os.makedirs(path)
-            with open(path + "/" + filename, "w+") as commit_file:
-                data = file.read()
-                commit_file.write(data)
-            file.seek(0)
+        with open(path + "/" + path_obj.name, "w+") as commit_file:
+            data = file.read()
+            commit_file.write(data)
+        file.seek(0)
 
     def add_file_data(self, filename : str, file ):
         if not filename in self.tracked_filenames:
