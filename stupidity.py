@@ -81,20 +81,29 @@ class CommitTree:
     def __init__(self, current, data):
         self.data = data
         self.current = current
-        self.root = CommitNode("root", data, current, parent=None)
+        self.root = None
+        if data != {}:
+            self.root = CommitNode(self.data["root"], self.data[self.data["root"]], current, parent=None)
+        else:
+            self.root = CommitNode(current, {}, current, None)      
         self.current_node = self.root
-        if self.current_node.current is not None:
+
+        if self.root is not None and self.current_node.current is not None:
             self.current_node = self.current_node.current        
     def add_hash(self, hash):
+        if self.root is None:
+            self.root = CommitNode(hash, {},  self.current, self.current_node)
+            return 
         if not hash in self.current_node.children.keys(): 
-            self.current = hash
-            self.current_node.children[hash] = CommitNode(hash, {}, self.current_node)
+            self.current_node.children[hash] = CommitNode(hash, {}, self.current, parent=None)
+        self.current = hash
         self.current_node = self.current_node.children[hash]
     def encode(self):
-        return self.root.getdict()
+        return {"root": self.root.name,self.root.name : self.root.getdict()}
     def get_hash_list(self):
         return self.current_node.getlist()
     def revert(self, n):
+
         self.current_node = self.current_node.get_ancestor(n)
 class FileData:
     def __init__(self, data, name):
@@ -184,7 +193,7 @@ class StupidityRepo:
         if not filename in self.tracked_filenames:
             self.tracked_filenames.append(filename)
             if filename in self.tracked_files.keys():
-                self.tracked_files[filename].add_file(file)
+                self.tracked_files[filename].add_file(file, get_file_hash(file).hexdigest())
             else:
                 self.tracked_files[filename] = FileData({ 
                         "time_added" : str(time.time()),
